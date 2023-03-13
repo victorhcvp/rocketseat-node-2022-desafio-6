@@ -4,61 +4,90 @@ import { Statement } from "../entities/Statement";
 import { ICreateStatementDTO } from "../useCases/createStatement/ICreateStatementDTO";
 import { IGetBalanceDTO } from "../useCases/getBalance/IGetBalanceDTO";
 import { IGetStatementOperationDTO } from "../useCases/getStatementOperation/IGetStatementOperationDTO";
+import { ITransferDTO } from "../useCases/transfer/ITransferDTO";
 import { IStatementsRepository } from "./IStatementsRepository";
 
+import { OperationType } from "../entities/Statement";
+
 export class StatementsRepository implements IStatementsRepository {
-  private repository: Repository<Statement>;
+	private repository: Repository<Statement>;
 
-  constructor() {
-    this.repository = getRepository(Statement);
-  }
+	constructor() {
+		this.repository = getRepository(Statement);
+	}
 
-  async create({
-    user_id,
-    amount,
-    description,
-    type
-  }: ICreateStatementDTO): Promise<Statement> {
-    const statement = this.repository.create({
-      user_id,
-      amount,
-      description,
-      type
-    });
+	async transfer({ to_user, user_id, value }: ITransferDTO) {
+		const statementWithdraw = this.repository.create({
+			user_id,
+			amount: value * -1,
+			description: "Transfer",
+			type: OperationType.WITHDRAW,
+		});
 
-    return this.repository.save(statement);
-  }
+		const withdraw = this.repository.save(statementWithdraw);
 
-  async findStatementOperation({ statement_id, user_id }: IGetStatementOperationDTO): Promise<Statement | undefined> {
-    return this.repository.findOne(statement_id, {
-      where: { user_id }
-    });
-  }
+		const statementDeposit = this.repository.create({
+			user_id: to_user,
+			amount: value,
+			description: "Transfer in",
+			type: OperationType.DEPOSIT,
+		});
 
-  async getUserBalance({ user_id, with_statement = false }: IGetBalanceDTO):
-    Promise<
-      { balance: number } | { balance: number, statement: Statement[] }
-    >
-  {
-    const statement = await this.repository.find({
-      where: { user_id }
-    });
+		this.repository.save(statementDeposit);
 
-    const balance = statement.reduce((acc, operation) => {
-      if (operation.type === 'deposit') {
-        return acc + operation.amount;
-      } else {
-        return acc - operation.amount;
-      }
-    }, 0)
+		return withdraw;
+	}
 
-    if (with_statement) {
-      return {
-        statement,
-        balance
-      }
-    }
+	async create({
+		user_id,
+		amount,
+		description,
+		type,
+	}: ICreateStatementDTO): Promise<Statement> {
+		const statement = this.repository.create({
+			user_id,
+			amount,
+			description,
+			type,
+		});
 
-    return { balance }
-  }
+		return this.repository.save(statement);
+	}
+
+	async findStatementOperation({
+		statement_id,
+		user_id,
+	}: IGetStatementOperationDTO): Promise<Statement | undefined> {
+		return this.repository.findOne(statement_id, {
+			where: { user_id },
+		});
+	}
+
+	async getUserBalance({
+		user_id,
+		with_statement = false,
+	}: IGetBalanceDTO): Promise<
+		{ balance: number } | { balance: number; statement: Statement[] }
+	> {
+		const statement = await this.repository.find({
+			where: { user_id },
+		});
+
+		const balance = statement.reduce((acc, operation) => {
+			if (operation.type === "deposit") {
+				return acc + operation.amount;
+			} else {
+				return acc - operation.amount;
+			}
+		}, 0);
+
+		if (with_statement) {
+			return {
+				statement,
+				balance,
+			};
+		}
+
+		return { balance };
+	}
 }
